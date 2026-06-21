@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+:root {
+  /* Surfaces */
+  --bg: #0a0b10;
+  --surface: rgba(255, 255, 255, 0.045);
+  --surface-strong: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  /* Text */
+  --text: #f4f5f9;
+  --text-dim: #a3a8b6;
+  --text-faint: #6c7280;
+
+  /* Accent */
+  --accent: #6366f1;
+  --accent-2: #a855f7;
+  --accent-3: #22d3ee;
+  --accent-glow: rgba(99, 102, 241, 0.45);
+
+  --radius: 16px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(60rem 40rem at 50% -10%, rgba(99, 102, 241, 0.18), transparent 60%),
+    radial-gradient(50rem 40rem at 100% 100%, rgba(168, 85, 247, 0.12), transparent 55%),
+    radial-gradient(40rem 30rem at 0% 90%, rgba(34, 211, 238, 0.1), transparent 55%);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  width: 100%;
+  max-width: 640px;
+  padding: 0 24px;
+}
