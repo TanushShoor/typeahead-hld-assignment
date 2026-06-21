@@ -1,37 +1,117 @@
-# POP SEARCH (Distributed TypeAhead System)
+# Typeahead Search
 
-A production-grade, highly scalable TypeAhead Search API built with Node.js, React, PostgreSQL, and a distributed Redis Cluster.
+A production-grade, horizontally scalable **typeahead / autocomplete** service. Built with Node.js, React, PostgreSQL, and a distributed three-node Redis cluster, it serves real-time search suggestions and trending queries at thousands of requests per second.
 
-## Features & Architecture
+> Benchmarked at **~6,900 RPS** on cached reads with **~11× higher throughput** and **~10× lower latency** than hitting PostgreSQL directly. See [`benchmark_report.md`](./benchmark_report.md).
 
-### 1. Consistent Hashing (Distributed Cache)
-Instead of relying on a single Redis node, this system implements a mathematically perfect **Consistent Hashing Algorithm**.
-- A cryptographic MD5 "Hash Ring" distributes search prefixes evenly across a 3-node Redis cluster (`redis-1`, `redis-2`, `redis-3`).
-- **100 Virtual Replicas** per node ensure smooth load balancing and prevent "hot-spotting" where one node handles disproportionate traffic.
-- A "Magic Wrapper" dynamically routes `get` and `setEx` calls to the correct node based on the prefix using a binary search algorithm in $O(\log n)$ time.
+---
 
-### 2. Write-Behind Batching
-To achieve 10,000+ Requests Per Second (RPS) without melting the PostgreSQL database, we decoupled ingestion from disk I/O.
-- Incoming searches hit an **In-Memory Queue** (RAM) and return instantly.
-- A **Background Aggregator Worker** drains the queue every 5 seconds (or if the queue exceeds 1,000 items) and aggregates duplicates.
-- The worker executes a single bulk `prisma.$transaction`, reducing thousands of database calls to just 1.
-- *Tradeoff:* In-memory queues trade durability for speed. If the server crashes, up to 5 seconds of search logs could be lost. For a non-financial analytics system like Trending Searches, this is an optimal tradeoff.
+## Architecture
 
-### 3. Blended Trending Searches Algorithm
-We implemented a Hacker News / Reddit style ranking algorithm to determine "Trending" searches.
-- Instead of pure recency (which allows obscure recent words to dominate) or pure popularity (which prevents new words from trending), we use a blended formula:
-  $$ \text{Score} = \log_{10}(\text{Historical Count}) + \left(\frac{\text{Current Timestamp Seconds}}{45000}\right) $$
-- This creates an exponential decay curve where highly popular words get a small logarithmic boost, but recency allows fresh queries to rise to the top.
+### 1. Distributed cache via consistent hashing
 
-### 4. 100k "Defensible" Dataset
-The database is seeded with Peter Norvig's N-Grams corpus, featuring the top 100,000 real English words and their exact Google Web frequencies. We migrated the Prisma schema to use `BigInt` to support words with over 2 billion occurrences.
+Rather than depending on a single Redis instance, suggestions are spread across a 3-node cluster (`redis-1`, `redis-2`, `redis-3`) using a **consistent hashing ring**.
 
-## Running Locally
+- An MD5-based hash ring maps each search prefix to a node, so the cluster can grow or shrink while keeping the vast majority of keys in place.
+- **100 virtual nodes per server** keep the key distribution even and prevent any single node from becoming a hot spot.
+- A thin client wrapper routes every `get` / `setEx` / `zAdd` call to the owning node, locating it with a binary search over the ring in **O(log n)** time.
 
-1. Start the cluster:
+You can inspect the routing decision for any prefix:
+
 ```bash
-docker compose up --build -d
+curl "http://localhost:8000/api/v2/cache/debug?prefix=apple"
 ```
-2. The Database will automatically seed the 100k dataset.
-3. Access the Frontend at `http://localhost:5173`.
-4. Verify the cache distribution at `http://localhost:5000/api/v2/cache/debug?prefix=apple`.# typeahead-hld-assignment
+
+### 2. Write-behind batching for ingestion
+
+To absorb thousands of writes per second without overwhelming PostgreSQL, ingestion is decoupled from disk I/O.
+
+- Incoming searches are appended to an **in-memory queue** and acknowledged immediately.
+- A **background worker** drains the queue every 5 seconds — or sooner, once it exceeds 1,000 entries — aggregating duplicates along the way.
+- Each flush collapses thousands of individual writes into a **single bulk `prisma.$transaction`**.
+
+**Trade-off:** the in-memory queue favors throughput over durability. A crash can lose up to ~5 seconds of search logs. For analytics-style data such as trending searches — where exact counts are non-critical — this is a deliberate and reasonable trade.
+
+### 3. Blended trending algorithm
+
+Trending queries are ranked with a Hacker News / Reddit-style score that blends popularity with recency:
+
+```
+score = log10(historical_count) + (current_timestamp_seconds / 45000)
+```
+
+Pure popularity would freeze the rankings and never let new terms surface; pure recency would let obscure one-off queries dominate. The logarithmic popularity term plus a steadily rising recency term lets fresh queries climb while still respecting overall demand.
+
+### 4. A defensible 100k-word dataset
+
+The database is seeded from **Peter Norvig's n-grams corpus** — the top 100,000 English words ranked by real Google Web frequency. Because the most common words occur billions of times, the Prisma schema stores counts as `BigInt`.
+
+---
+
+## Tech stack
+
+| Layer    | Technology                                              |
+| -------- | ------------------------------------------------------- |
+| Frontend | React 19, Vite                                          |
+| Backend  | Node.js, Express 5, TypeScript                          |
+| Database | PostgreSQL 15, Prisma 7                                  |
+| Cache    | Redis (3-node cluster) with a custom consistent-hash ring |
+| Infra    | Docker Compose                                          |
+
+---
+
+## API
+
+| Method | Endpoint                          | Description                                        |
+| ------ | --------------------------------- | -------------------------------------------------- |
+| `GET`  | `/api/v1/suggest?q=<prefix>`      | Suggestions read straight from PostgreSQL (uncached) |
+| `POST` | `/api/v1/search`                  | Log a search query (queued for write-behind batching) |
+| `GET`  | `/api/v2/suggest?q=<prefix>`      | Suggestions served through the Redis cache (cache-aside) |
+| `GET`  | `/api/v2/trending`                | Top trending queries by blended score              |
+| `GET`  | `/api/v2/cache/debug?prefix=<p>`  | Which Redis node owns a given prefix               |
+
+---
+
+## Running locally
+
+**Prerequisites:** Docker and Docker Compose.
+
+1. Build and start the full stack (PostgreSQL, the 3-node Redis cluster, backend, and frontend):
+
+   ```bash
+   docker compose up --build -d
+   ```
+
+   On first run, a one-off `setup` service generates the Prisma client and seeds the 100k-word dataset before the API starts. Each service writes its own `.env` at startup from the Compose environment, so there's nothing to configure by hand.
+
+2. Open the app:
+
+   - **Frontend:** http://localhost:5173
+   - **API:** http://localhost:8000
+
+3. Verify cache distribution:
+
+   ```bash
+   curl "http://localhost:8000/api/v2/cache/debug?prefix=apple"
+   ```
+
+### Common commands
+
+```bash
+docker compose logs -f backend      # follow backend logs
+docker compose down                 # stop and remove containers (keeps the DB volume)
+docker compose down -v              # also wipe the database (forces a re-seed next time)
+docker compose up --build -d backend  # rebuild just the backend after code changes
+```
+
+---
+
+## Performance
+
+A summary of the load tests (full methodology and analysis in [`benchmark_report.md`](./benchmark_report.md)):
+
+| Scenario                          | RPS    | Avg latency |
+| --------------------------------- | ------ | ----------- |
+| Ingestion (`POST /api/v1/search`) | ~6,969 | 237 ms      |
+| Uncached read (`GET /api/v1/suggest`) | ~619   | 6,096 ms    |
+| Cached read (`GET /api/v2/suggest`)   | ~6,857 | 614 ms      |
