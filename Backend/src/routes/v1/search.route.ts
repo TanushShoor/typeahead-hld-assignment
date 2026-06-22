@@ -9,7 +9,7 @@ router.post("/", async (req, res) => {
 
     try {
         const result = await saveSearchQuery(query);
-        return res.json({ message: "Search saved successfully (v1)", data: result });
+        return res.json({ message: "Searched", data: result });
     } catch (error) {
         return res.status(500).json({ error: "Failed to save search query" });
     }

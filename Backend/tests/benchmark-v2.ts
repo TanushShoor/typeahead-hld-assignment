@@ -7,6 +7,8 @@ const formatResult = (result: autocannon.Result, name: string) => {
     console.log(`Completed Requests:  ${result.requests.total}`);
     console.log(`Req/Sec (Avg):       ${result.requests.average}`);
     console.log(`Latency (Avg):       ${result.latency.average || 0} ms`);
+    console.log(`Latency (p95):       ${result.latency.p97_5 || 0} ms`);
+    console.log(`Latency (p99):       ${result.latency.p99 || 0} ms`);
     console.log(`Non-2xx Responses:   ${result.non2xx}`);
     console.log(`Errors:              ${result.errors}`);
     console.log(`Timeouts:            ${result.timeouts}`);
@@ -21,12 +23,12 @@ const formatResult = (result: autocannon.Result, name: string) => {
 
 async function runBenchmarks() {
     console.log("Starting V2 Benchmark Suite (Redis Caching)...");
-    console.log("[WARNING] Make sure your backend server is running on port 5000!\n");
+    console.log("[WARNING] Make sure your backend server is running on port 8000!\n");
 
     // --- PHASE 1: The GET Assault (V2 - Redis Cache) ---
     console.log("[Phase 1/1] Blasting GET /api/v2/suggest (Redis Cache-Aside)...");
     const v2Result = await autocannon({
-        url: 'http://localhost:5000/api/v2/suggest?q=app',
+        url: 'http://localhost:8000/api/v2/suggest?q=app',
         connections: 1000,
         pipelining: 20,
         duration: 15

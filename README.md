@@ -68,7 +68,7 @@ The database is seeded from **Peter Norvig's n-grams corpus** — the top 100,00
 | `POST` | `/api/v1/search`                  | Log a search query (queued for write-behind batching) |
 | `GET`  | `/api/v2/suggest?q=<prefix>`      | Suggestions served through the Redis cache (cache-aside) |
 | `GET`  | `/api/v2/trending`                | Top trending queries by blended score              |
-| `GET`  | `/api/v2/cache/debug?prefix=<p>`  | Which Redis node owns a given prefix               |
+| `GET`  | `/api/v2/cache/debug?prefix=<p>`  | Which Redis node owns a prefix, and whether it's a cache HIT or MISS |
 
 ---
 
@@ -103,6 +103,20 @@ docker compose down                 # stop and remove containers (keeps the DB v
 docker compose down -v              # also wipe the database (forces a re-seed next time)
 docker compose up --build -d backend  # rebuild just the backend after code changes
 ```
+
+---
+
+## Tests
+
+```bash
+cd Backend
+npm test                # vitest run
+```
+
+- **`ConsistentHash.test.ts`** — pure unit tests (no infrastructure needed): determinism, even key distribution across nodes, minimal remapping when a node is added, and empty-ring handling.
+- **`search.test.ts`** — API tests for `/suggest`, `/search`, and `/cache/debug`. These require the Postgres + Redis stack to be running (`docker compose up`).
+
+Load tests live in `tests/benchmark-v1.ts` (uncached) and `tests/benchmark-v2.ts` (cached); run them with `tsx` against a live server on port 8000.
 
 ---
 
